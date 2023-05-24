@@ -1,0 +1,6 @@
+# kicad ignores
+pcb/watch-backups/
+pcb/gerbers.zip
+pcb/_autosave*
+pcb/#auto_saved_files#
+pcb/report.txt
