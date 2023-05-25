@@ -2,24 +2,59 @@
 #include <avr/interrupt.h>
 #include <avr/io.h>
 
-#define PA1 0b00000010
-#define PA2 0b00000100
-#define PA3 0b00001000
-#define PA6 0b01000000
-#define PA7 0b10000000
-// PA6 and PA7 will be used as outputs to blink a pair of LEDs
+#define PA1 0x20
+#define PA2 0x40
+#define PA3 0x80
+#define PA6 0x40
+#define PA7 0x80
 
-// 32 bit values. Each byte will have a single bit set to 1. This bit will be the
-//  corresponding bit in the PORTA register that must be set or cleared to display
-//  the desired pattern on the LED matrix.
-#define MM0_HIGH (PA2 << 24) | (PA2 << 16) | (PA7 << 8) | (PA3 << 0)
-#define MM1_HIGH (0x0 << 24) | (PA7 << 16) | (PA6 << 8) | (PA2 << 0)
-#define HH0_HIGH (PA6 << 24) | (PA3 << 16) | (PA6 << 8) | (PA7 << 0)
-#define HH1_HIGH (0x0 << 24) | (0x0 << 16) | (0x0 << 8) | (PA3 << 0)
-#define MM0_LOW (PA6 << 24) | (PA7 << 16) | (PA2 << 8) | (PA2 << 0)
-#define MM1_LOW (0x0 << 24) | (PA6 << 16) | (PA3 << 8) | (PA3 << 0)
-#define HH0_LOW (PA7 << 24) | (PA6 << 16) | (PA2 << 8) | (PA3 << 0)
-#define HH1_LOW (0x0 << 24) | (0x0 << 16) | (0x0 << 8) | (PA7 << 0)
+
+// ##### Charlieplexing matrix data #####
+
+// Masks for each of the BCD nibbles
+#define MM_L0_MASK 0x0001
+#define MM_L1_MASK 0x0002
+#define MM_L2_MASK 0x0004
+#define MM_L3_MASK 0x0008
+#define MM_H1_MASK 0x0010
+#define MM_H2_MASK 0x0020
+#define MM_H3_MASK 0x0040
+#define HH_L0_MASK 0x0100
+#define HH_L1_MASK 0x0200
+#define HH_L2_MASK 0x0400
+#define HH_L3_MASK 0x0800
+#define HH_H1_MASK 0x1000
+
+// Pins to write high for each of the bits in the BCD nibbles
+#define MM_L0_HIGH PA3
+#define MM_L1_HIGH PA7
+#define MM_L2_HIGH PA2
+#define MM_L3_HIGH PA2
+#define MM_H1_HIGH PA2
+#define MM_H2_HIGH PA6
+#define MM_H3_HIGH PA7
+#define HH_L0_HIGH PA7
+#define HH_L1_HIGH PA6
+#define HH_L2_HIGH PA3
+#define HH_L3_HIGH PA6
+#define HH_H1_HIGH PA3
+
+// Pins to write low for each of the BCD nibbles
+#define MM_L0_LOW PA2
+#define MM_L1_LOW PA2
+#define MM_L2_LOW PA7
+#define MM_L3_LOW PA6
+#define MM_H1_LOW PA3
+#define MM_H2_LOW PA3
+#define MM_H3_LOW PA6
+#define HH_L0_LOW PA3
+#define HH_L1_LOW PA2
+#define HH_L2_LOW PA6
+#define HH_L3_LOW PA7
+#define HH_H1_LOW PA7
+
+
+// ##### Function declarations #####
 
 /**
  * @brief Gets the current time as a 16 bit BCD value
@@ -32,6 +67,13 @@ uint16_t get_time();
  * @brief Prepares the device to enter a low power sleep state
  */
 void prep_sleep();
+
+
+
+// ###########################################################################
+// #####                          MAIN FUNCTION                          #####
+// ###########################################################################
+
 
 int main(void) {
 
@@ -120,6 +162,7 @@ int main(void) {
     ADC0.INTCTRL |= ADC_RESRDY_bm;      // Enable the ADC result ready interrupt
     ADC0.INTCTRL |= ADC_WCMP_bm;        // Enable the ADC window comparator interrupt
     ADC0.WINLT = 0xC0;                  // Set the ADC window comparator low threshold to ~0.75*Vdd
+    ADC0.CTRLA |= ADC_ENABLE_bm;        // Enable the ADC
 
 
     for (;;) {
@@ -128,6 +171,7 @@ int main(void) {
         continue;
     }
 }
+
 
 // Gets the time as 16-bit BCD value in HH:MM format
 uint16_t get_time() {
@@ -160,6 +204,13 @@ uint16_t get_time() {
 void prep_sleep() {
     PORTA.DIRCLR = PA7; // Set PA7 as an input
 }
+
+
+
+// ###########################################################################
+// #####                   Interrupt Service Routines                   ######
+// ###########################################################################
+
 
 ISR(TCA0_OVF_vect) {
     // Clear the interrupt flag
