@@ -234,7 +234,7 @@ ISR(ADC0_RESRDY_vect) {
     // TODO: Update the FSM
 }
 
-ISR(ADC0_WCMP_vect) {
+ISR(ADC0_WCOMP_vect) {
     // Clear the interrupt flag
     ADC0.INTFLAGS = ADC_WCMP_bm;
 
