@@ -21,7 +21,7 @@ MCU=attiny402
 MCU_ARCH=avrxmega3
 TARGET=main
 
-CFLAGS=-mmcu=$(MCU) -O0
+CFLAGS=-mmcu=$(MCU) -Os -g
 
 CC=avr-gcc
 OBJCOPY=avr-objcopy
