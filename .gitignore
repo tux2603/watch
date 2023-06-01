@@ -8,3 +8,4 @@ pcb/report.txt
 src/main.S
 bin/*
 watch.3mf
+cad/*.3mf
