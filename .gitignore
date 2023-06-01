@@ -7,3 +7,4 @@ pcb/report.txt
 .vscode
 src/main.S
 bin/*
+watch.3mf
