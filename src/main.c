@@ -4,19 +4,18 @@
 #include <avr/interrupt.h>
 #include <avr/io.h>
 #include <stdint.h>
+#include "config.h"
 
 
 // ##### Pin IO masks and general constants #####
+
 #define PA1 0x20
 #define PA2 0x40
 #define PA3 0x80
 #define PA6 0x40
 #define PA7 0x80
 
-#define UPDATE_FREQ 720
-#define DEBOUNCE_COUNT 10
-#define RESET_COUNT (UPDATE_FREQ * 3)
-#define WAKE_TIME 10
+#define RESET_COUNT (RESET_HOLD_TIME * 3)
 #define SET_BTN_THRESHOLD 0xC0
 #define VIEW_BTN_THRESHOLD 0x40
 
@@ -200,19 +199,19 @@ int main(void) {
 
 
     // ##### Configure TCA #####
-    // TCA0 will trigger the device to enter sleep mode after WAKE_TIME seconds of inactivity
+    // TCA0 will trigger the device to enter sleep mode after SLEEP_TIMEOUT seconds of inactivity
     TCA0.SINGLE.CTRLA |= TCA_SINGLE_CLKSEL_DIV1024_gc; // Set the TCA clock source to CLK_PER/1024
     TCA0.SINGLE.CTRLB |= TCA_SINGLE_WGMODE_NORMAL_gc;  // Set the TCA waveform generation mode to normal
     TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;          // Enable the TCA overflow interrupt
-    TCA0.SINGLE.PER = (WAKE_TIME * F_CPU) / 1024 - 1;  // Set the TCA period to WAKE_TIME seconds
+    TCA0.SINGLE.PER = (SLEEP_TIMEOUT * F_CPU) / 1024 - 1;  // Set the TCA period to SLEEP_TIMEOUT seconds
     TCA0.SINGLE.CNT = 0x0000;                          // Set the TCA count to 0
     TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm;         // Enable the TCA
 
 
     // ##### Configure TCB #####
-    // TCB will trigger the LED update interrupt at UPDATE_FREQ Hz
+    // TCB will trigger the LED update interrupt at UPDATE_FREQUENCY Hz
     TCB0.INTCTRL |= TCB_CAPT_bm;         // Enable the TCB capture interrupt
-    TCB0.CCMP = F_CPU / UPDATE_FREQ - 1; // Set TCB's compare value to trigger at UPDATE_FREQ Hz
+    TCB0.CCMP = F_CPU / UPDATE_FREQUENCY - 1; // Set TCB's compare value to trigger at UPDATE_FREQUENCY Hz
     TCB0.CTRLA |= TCB_ENABLE_bm;         // Set the TCB clock source to TCA, and enable the TCB
 
 
@@ -592,7 +591,7 @@ ISR(ADC0_RESRDY_vect) {
     }
 
     // If the debounce counter has reached the reset threshold, reset the device.
-    if (debounce_cnt == RESET_COUNT)
+    if (debounce_cnt == RESET_HOLD_TIME)
         reset_device();
 }
 
