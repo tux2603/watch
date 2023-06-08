@@ -1,21 +1,22 @@
 #define F_CPU 1000000
 
+#include "config.h"
 #include <avr/eeprom.h>
 #include <avr/interrupt.h>
 #include <avr/io.h>
+#include <avr/sleep.h>
 #include <stdint.h>
-#include "config.h"
 
 
 // ##### Pin IO masks and general constants #####
 
-#define PA1 0x20
-#define PA2 0x40
-#define PA3 0x80
+#define PA1 0x02
+#define PA2 0x04
+#define PA3 0x08
 #define PA6 0x40
 #define PA7 0x80
 
-#define RESET_COUNT (RESET_HOLD_TIME * 3)
+#define RESET_COUNT (RESET_HOLD_TIME * UPDATE_FREQUENCY)
 #define SET_BTN_THRESHOLD 0xC0
 #define VIEW_BTN_THRESHOLD 0x40
 
@@ -151,7 +152,7 @@ void reset_device();
 int main(void) {
 
     // ##### Configure clocks #####
-    // OSC20M will operate in 16MHz mode. CLK_MAIN and CLK_PER will both use 
+    // OSC20M will operate in 16MHz mode. CLK_MAIN and CLK_PER will both use
     //  the correct prescaler option to hit F_CPU Hz
     CCP = CCP_IOREG_gc;                            // Allow access to protected registers
     CLKCTRL.MCLKCTRLA |= CLKCTRL_CLKSEL_OSC20M_gc; // Set the main clock to OSC20M
@@ -173,7 +174,7 @@ int main(void) {
     RTC.CTRLA |= RTC_PRESCALER_DIV32768_gc | RTC_RUNSTDBY_bm; // Set the RTC prescaler to 32768 and enable it in standby mode
     RTC.CLKSEL |= RTC_CLKSEL_INT32K_gc;                       // Set the RTC clock source to the 32kHz oscillator
     while (RTC.STATUS & RTC_CNTBUSY_bm) continue;             // Wait for the RTC CNT register to be ready to be configured
-    RTC.CNT = 0x0000;                                         // Set the RTC count to 0
+    RTC.CNT = 0x0DD4;                                         // Set the RTC count to 12:59
     while (RTC.STATUS & RTC_PERBUSY_bm) continue;             // Wait for the RTC PER register to be ready to be configured
     RTC.PER = 43199u;                                         // Set the RTC period to 12 hours
     while (RTC.STATUS & RTC_CTRLABUSY_bm) continue;           // Wait for the RTC CTRLA register to be ready to be configured
@@ -186,7 +187,7 @@ int main(void) {
     //  - TCB overflow will trigger the LEDs to update
     //  - ADC conversion will trigger the FSM to update
     //  - ADC window will reset the TCA CNT register to 0
-    //  - Falling edge on PA1 will trigger the device to wake up
+    //  - A low level on PA1 will trigger the device to wake up
     CCP = CCP_IOREG_gc;                 // Allow access to protected registers
     CPUINT.CTRLA |= CPUINT_LVL0RR_bm;   // Enable round-robin scheduling
     CPUINT.LVL1VEC = TCA0_OVF_vect_num; // Set the TCA overflow interrupt to priority level 1
@@ -200,19 +201,19 @@ int main(void) {
 
     // ##### Configure TCA #####
     // TCA0 will trigger the device to enter sleep mode after SLEEP_TIMEOUT seconds of inactivity
-    TCA0.SINGLE.CTRLA |= TCA_SINGLE_CLKSEL_DIV1024_gc; // Set the TCA clock source to CLK_PER/1024
-    TCA0.SINGLE.CTRLB |= TCA_SINGLE_WGMODE_NORMAL_gc;  // Set the TCA waveform generation mode to normal
-    TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;          // Enable the TCA overflow interrupt
-    TCA0.SINGLE.PER = (SLEEP_TIMEOUT * F_CPU) / 1024 - 1;  // Set the TCA period to SLEEP_TIMEOUT seconds
-    TCA0.SINGLE.CNT = 0x0000;                          // Set the TCA count to 0
-    TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm;         // Enable the TCA
+    TCA0.SINGLE.CTRLA |= TCA_SINGLE_CLKSEL_DIV1024_gc;    // Set the TCA clock source to CLK_PER/1024
+    TCA0.SINGLE.CTRLB |= TCA_SINGLE_WGMODE_NORMAL_gc;     // Set the TCA waveform generation mode to normal
+    TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;             // Enable the TCA overflow interrupt
+    TCA0.SINGLE.PER = (SLEEP_TIMEOUT * F_CPU) / 1024 - 1; // Set the TCA period to SLEEP_TIMEOUT seconds
+    TCA0.SINGLE.CNT = 0x0000;                             // Set the TCA count to 0
+    TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm;            // Enable the TCA
 
 
     // ##### Configure TCB #####
     // TCB will trigger the LED update interrupt at UPDATE_FREQUENCY Hz
-    TCB0.INTCTRL |= TCB_CAPT_bm;         // Enable the TCB capture interrupt
+    TCB0.INTCTRL |= TCB_CAPT_bm;              // Enable the TCB capture interrupt
     TCB0.CCMP = F_CPU / UPDATE_FREQUENCY - 1; // Set TCB's compare value to trigger at UPDATE_FREQUENCY Hz
-    TCB0.CTRLA |= TCB_ENABLE_bm;         // Set the TCB clock source to TCA, and enable the TCB
+    TCB0.CTRLA |= TCB_ENABLE_bm;              // Set the TCB clock source to TCA, and enable the TCB
 
 
     // ##### Configure ADC #####
@@ -236,46 +237,48 @@ int main(void) {
     // The default state of all pins will be inputs with pull-ups disabled. PA2, PA3, PA6, and PA7
     //  are used to charlieplex a matrix of 12 LEDs, and will be toggled to digital outputs
     //  as appropriate in a timed interrupt.
-    // PA1 will be a digital input with an attached interrupt that is triggered on its falling edge.
-    PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7;  // Set LED pins to inputs
-    PORTA.DIRCLR = PA1;                    // Set the switch pin to an input
-    PORTA.PIN1CTRL |= PORT_ISC_FALLING_gc; // Set the switch pin to trigger an interrupt on a falling edge
+    // PA1 will be a digital input with an attached interrupt that is triggered on a low level.
+    PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7; // Set LED pins to inputs
+    PORTA.DIRCLR = PA1;                   // Set the switch pin to an input
+    PORTA.PIN1CTRL |= PORT_ISC_LEVEL_gc;  // Set the switch pin to trigger an interrupt on a low level
 
 
     // ##### Load time data from EEPROM #####
 
-    // Load data from EEPROM if there was a software reset
-    if (RSTCTRL.RSTFR & RSTCTRL_SWRF_bm) {
-        // load the data and write it to the current time
-        uint16_t saved_time = eeprom_read_word((uint16_t *)EEPROM_TIME_ADDR);
+    // // Load data from EEPROM if there was a software reset
+    // if (RSTCTRL.RSTFR & RSTCTRL_SWRF_bm) {
+    //     // load the data and write it to the current time
+    //     uint16_t saved_time = eeprom_read_word((uint16_t *)EEPROM_TIME_ADDR);
 
-        // re-initialize the RTC with the time loaded from EEPROM
-        while (RTC.STATUS & RTC_CNTBUSY_bm) continue;
-        RTC.CNT = saved_time;
+    //     // re-initialize the RTC with the time loaded from EEPROM
+    //     while (RTC.STATUS & RTC_CNTBUSY_bm) continue;
+    //     RTC.CNT = saved_time;
 
-        // load the value into the current time variable and set the state to display
-        current_time = get_time();
-        current_state = FSM_DISPLAY;
-    }
+    //     // load the value into the current time variable and set the state to display
+    //     current_time = get_time();
+    //     current_state = FSM_DISPLAY;
+    // }
 
-    // If the software reset flag wasn't set, the device most likely lost power
-    //  and the time wasn't saved. in this case, the FSM should start in the
-    //  FSM_SET_HH state so that the user can enter the correct time
-    else {
-        current_state = FSM_SET_HH;
-    }
+    // // If the software reset flag wasn't set, the device most likely lost power
+    // //  and the time wasn't saved. in this case, the FSM should start in the
+    // //  FSM_SET_HH state so that the user can enter the correct time
+    // else {
+    //     current_state = FSM_SET_HH;
+    // }
 
+    // For now just default to starting in the set time state
+    current_state = FSM_SET_HH;
 
     // ##### Ready to go! Turn everything on #####
 
     // Enable interrupts
-    SREG |= SREG_I;
+    sei();
 
 
     for (;;) {
         // Wait for the enter sleep bit to be set
         while (!(SLPCTRL.CTRLA & SLPCTRL_SEN_bm)) continue;
-        asm("SLEEP"); // Go to sleep
+        sleep_cpu(); // Enter standby mode
     }
 }
 
@@ -329,17 +332,16 @@ uint16_t increment_time(uint8_t hh, uint8_t mm_h, uint8_t mm_l) {
     // Note that 12:00 is represented as 00:00 internally
     if (current_mm_l > 9) current_mm_l = 0;
     if (current_mm_h > 5) current_mm_h = 0;
-    if (current_hh > 11) current_hh = 0;
+    if (current_hh > 12) current_hh = 1;
 
     // Convert the time back to seconds
     time = (current_hh * 3600) + (current_mm_h * 600) + (current_mm_l * 60);
 
     // Save the new time to the RTC
-    while(RTC.STATUS & RTC_CNTBUSY_bm) continue;
+    while (RTC.STATUS & RTC_CNTBUSY_bm) continue;
     RTC.CNT = time;
 
     // Convert the new time back to BCD and return it
-    if (current_hh == 0) current_hh = 12;
     time = (current_hh / 10) << 12 | (current_hh % 10) << 8;
     time |= (current_mm_h << 4) | current_mm_l;
     return time;
@@ -349,13 +351,13 @@ uint16_t increment_time(uint8_t hh, uint8_t mm_h, uint8_t mm_l) {
 // ##### Trigger a device reset #####
 
 void reset_device() {
-    // Save the current time to EEPROM
-    uint16_t time = RTC.CNT;
-    eeprom_write_word((uint16_t *)EEPROM_TIME_ADDR, time);
+    // // Save the current time to EEPROM
+    // uint16_t time = RTC.CNT;
+    // eeprom_write_word((uint16_t *)EEPROM_TIME_ADDR, time);
 
-    // Trigger a software reset
-    CCP = CCP_IOREG_gc;
-    RSTCTRL.SWRR = RSTCTRL_SWRE_bm;
+    // // Trigger a software reset
+    // CCP = CCP_IOREG_gc;
+    // RSTCTRL.SWRR = RSTCTRL_SWRE_bm;
 }
 
 
@@ -380,11 +382,13 @@ ISR(TCA0_OVF_vect) {
     //  sleep instruction to actually enter standby mode
 
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;   // Clear the interrupt flag
+    if (current_state != FSM_DISPLAY) return;   // Only enter sleep if not on one of the set modes
     PORTA.OUTCLR = PA2 | PA3 | PA6 | PA7;       // Set all four LED pins to low
     PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7;       // Set all four LED pins to be inputs
     TCA0.SINGLE.CTRLA &= ~TCA_SINGLE_ENABLE_bm; // Disable TCA0
     TCB0.CTRLA &= ~TCB_ENABLE_bm;               // Disable TCB0
     ADC0.CTRLA &= ~ADC_ENABLE_bm;               // Disable ADC0
+    PORTA.PIN1CTRL |= PORT_ISC_LEVEL_gc;        // Set the switch pin to trigger an interrupt on low level
     SLPCTRL.CTRLA |= SLPCTRL_SMODE_STDBY_gc;    // Set the sleep mode to standby
     SLPCTRL.CTRLA |= SLPCTRL_SEN_bm;            // Set the sleep bit
 }
@@ -402,7 +406,7 @@ ISR(TCB0_INT_vect) {
 
 
     // Figure out if we need to be blinking right now
-    uint8_t blink = current_time & 0x00001;
+    uint8_t blink = RTC.CNT & 0x0001;
 
     // For each LED, set the two required pins to outputs, then write the High and Low values.
     // On the final LED, update the current time
@@ -565,7 +569,7 @@ ISR(ADC0_RESRDY_vect) {
             // If the view button is pressed in the set hour state, increment the time by one hour
             case FSM_SET_HH:
                 if (btn_state == BTN_SET)
-                    current_state = FSM_SET_MM_L;
+                    current_state = FSM_SET_MM_H;
                 else if (btn_state == BTN_VIEW)
                     increment_time(1, 0, 0);
                 break;
@@ -590,9 +594,9 @@ ISR(ADC0_RESRDY_vect) {
         }
     }
 
-    // If the debounce counter has reached the reset threshold, reset the device.
-    if (debounce_cnt == RESET_HOLD_TIME)
-        reset_device();
+    // // If the debounce counter has reached the reset threshold, reset the device.
+    // if (debounce_cnt == RESET_HOLD_TIME)
+    //     reset_device();
 }
 
 
@@ -602,23 +606,25 @@ ISR(ADC0_WCOMP_vect) {
     // Whenever the window comparator triggers, we know that one of the
     //  buttons was pressed. We don't really care about which one, since
     //  either button press will be used to reset the standby timer.
-    ADC0.INTFLAGS = ADC_WCMP_bm; // Clear the interrupt flag
-    TCA0.SINGLE.CNT = 0;         // Reset the standby timer
+    ADC0.INTFLAGS = ADC_WCMP_bm;                       // Clear the interrupt flag
+    TCA0.SINGLE.CTRLESET |= TCA_SINGLE_CMD_RESTART_gc; // Reset the TCA0 counter
 }
 
 
-// ##### PORTA Falling Edge Interrupt #####
+// ##### PORTA Low Level Interrupt #####
 
 ISR(PORTA_PORT_vect) {
     // Clear the interrupt flag
     PORTA.INTFLAGS = PORT_INT1_bm;
 
-    ADC0.CTRLA &= ~ADC_ENABLE_bm;               // Enable ADC0
-    TCB0.CTRLA &= ~TCB_ENABLE_bm;               // Enable TCB0
-    TCA0.SINGLE.CTRLA &= ~TCA_SINGLE_ENABLE_bm; // Enable TCA0
-    current_state = FSM_DISPLAY;                // Initialize the FSM
-    current_led = LED_MM_L0;                    // Initialize the LED
-    current_time = get_time();                  // Initialize the time
-    last_btn_state = BTN_NONE;                  // Initialize the last button
-    debounce_cnt = 0;                           // Initialize the button counter
+    ADC0.CTRLA |= ADC_ENABLE_bm;               // Enable ADC0
+    TCB0.CTRLA |= TCB_ENABLE_bm;               // Enable TCB0
+    TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm; // Enable TCA0
+    current_state = FSM_DISPLAY;               // Initialize the FSM
+    current_led = LED_MM_L0;                   // Initialize the LED
+    current_time = get_time();                 // Initialize the time
+    last_btn_state = BTN_NONE;                 // Initialize the last button
+    debounce_cnt = 0;                          // Initialize the button counter
+    PORTA.PIN1CTRL &= ~PORT_ISC_gm;            // Set the switch pin to not trigger an interrupt
+    SLPCTRL.CTRLA &= ~SLPCTRL_SEN_bm;          // Clear the sleep bit
 }
