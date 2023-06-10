@@ -84,18 +84,10 @@ typedef enum {
 } fsm_state_t;
 
 typedef enum {
-    LED_MM_L0 = 0x00,
-    LED_MM_L1 = 0x01,
-    LED_MM_L2 = 0x02,
-    LED_MM_L3 = 0x03,
-    LED_MM_H0 = 0x04,
-    LED_MM_H1 = 0x05,
-    LED_MM_H2 = 0x06,
-    LED_HH_L0 = 0x07,
-    LED_HH_L1 = 0x08,
-    LED_HH_L2 = 0x09,
-    LED_HH_L3 = 0x0A,
-    LED_HH_H0 = 0x0B
+    LED_CHUNK_0 = 0x00,
+    LED_CHUNK_1 = 0x01,
+    LED_CHUNK_2 = 0x02,
+    LED_CHUNK_3 = 0x03
 } led_state_t;
 
 typedef enum {
@@ -105,13 +97,40 @@ typedef enum {
 } btn_state_t;
 
 
+// ##### LED data for smaller code size #####
+
+const uint8_t led_high_pins[4] = {
+    MM_L2_HIGH | MM_L3_HIGH | MM_H0_HIGH,
+    MM_L0_HIGH | HH_L2_HIGH | HH_H0_HIGH,
+    MM_H1_HIGH | HH_L1_HIGH | HH_L3_HIGH,
+    MM_L1_HIGH | MM_H2_HIGH | HH_L0_HIGH};
+
+const uint8_t led_low_pins[4][3] = {
+    {MM_L2_LOW, MM_L3_LOW, MM_H0_LOW},
+    {MM_L0_LOW, HH_L2_LOW, HH_H0_LOW},
+    {MM_H1_LOW, HH_L1_LOW, HH_L3_LOW},
+    {MM_L1_LOW, MM_H2_LOW, HH_L0_LOW}};
+
+const uint16_t led_masks[4][3] = {
+    {MM_L2_MASK, MM_L3_MASK, MM_H0_MASK},
+    {MM_L0_MASK, HH_L2_MASK, HH_H0_MASK},
+    {MM_H1_MASK, HH_L1_MASK, HH_L3_MASK},
+    {MM_L1_MASK, MM_H2_MASK, HH_L0_MASK}};
+
+const uint8_t led_blink_map[4][3] = {
+    {FSM_SET_MM_L, FSM_SET_MM_L, FSM_SET_MM_H},
+    {FSM_SET_MM_L, FSM_SET_HH, FSM_SET_HH},
+    {FSM_SET_MM_H, FSM_SET_HH, FSM_SET_HH},
+    {FSM_SET_MM_L, FSM_SET_MM_H, FSM_SET_HH}};
+
+
 // ##### Volatile global variables #####
 
-volatile uint16_t current_time = 0x0000;          // The current time as a 16 bit BCD value, HH:MM
-volatile led_state_t current_led = LED_HH_L0;     // The current LED being lit
-volatile fsm_state_t current_state = FSM_DISPLAY; // The current state of the FSM
-volatile btn_state_t last_btn_state = BTN_NONE;   // The current button state
-volatile uint16_t debounce_cnt = 0;               // The number of updates the button value has been stable
+volatile uint16_t current_time = 0x0000;              // The current time as a 16 bit BCD value, HH:MM
+volatile led_state_t current_led_chunk = LED_CHUNK_0; // The current LED being lit
+volatile fsm_state_t current_state = FSM_DISPLAY;     // The current state of the FSM
+volatile btn_state_t last_btn_state = BTN_NONE;       // The current button state
+volatile uint16_t debounce_cnt = 0;                   // The number of updates the button value has been stable
 
 
 // ##### Function declarations #####
@@ -267,7 +286,7 @@ int main(void) {
     // }
 
     // For now just default to starting in the set time state
-    current_state = FSM_SET_HH;
+    current_state = FSM_DISPLAY;
 
     // ##### Ready to go! Turn everything on #####
 
@@ -406,117 +425,36 @@ ISR(TCB0_INT_vect) {
 
 
     // Figure out if we need to be blinking right now
-    uint8_t blink = RTC.CNT & 0x0001;
+    uint8_t blink = ~RTC.CNT & 0x0001;
 
-    // For each LED, set the two required pins to outputs, then write the High and Low values.
-    // On the final LED, update the current time
-    switch (current_led) {
-        case LED_MM_L0:
-            if ((current_time & MM_L0_MASK) && (blink || (current_state != FSM_SET_MM_L))) {
-                PORTA.DIRSET = MM_L0_LOW | MM_L0_HIGH;
-                PORTA.OUTSET = MM_L0_HIGH;
-                PORTA.OUTCLR = MM_L0_LOW;
-            }
-            current_led = LED_MM_L1;
+    // LEDs are updated in chunks of three. Set the high pin for the current
+    //  chunk to be an output and write a 1 to the set bit. Then set all of the low
+    //  pins for the current chunk to be outputs only if the corresponding bit is set
+    //  in the current time. Finally, set the current LED to the next chunk
+    PORTA.DIRSET = led_high_pins[current_led_chunk];
+    PORTA.OUTSET = led_high_pins[current_led_chunk];
+
+    if (current_time & led_masks[current_led_chunk][0] && (blink || current_state != led_blink_map[current_led_chunk][0]))
+        PORTA.DIRSET = led_low_pins[current_led_chunk][0];
+
+    if (current_time & led_masks[current_led_chunk][1] && (blink || current_state != led_blink_map[current_led_chunk][1]))
+        PORTA.DIRSET = led_low_pins[current_led_chunk][1];
+
+    if (current_time & led_masks[current_led_chunk][2] && (blink || current_state != led_blink_map[current_led_chunk][2]))
+        PORTA.DIRSET = led_low_pins[current_led_chunk][2];
+
+    switch (current_led_chunk) {
+        case LED_CHUNK_0:
+            current_led_chunk = LED_CHUNK_1;
             break;
-
-        case LED_MM_L1:
-            if ((current_time & MM_L1_MASK) && (blink || (current_state != FSM_SET_MM_L))) {
-                PORTA.DIRSET = MM_L1_LOW | MM_L1_HIGH;
-                PORTA.OUTSET = MM_L1_HIGH;
-                PORTA.OUTCLR = MM_L1_LOW;
-            }
-            current_led = LED_MM_L2;
+        case LED_CHUNK_1:
+            current_led_chunk = LED_CHUNK_2;
             break;
-
-        case LED_MM_L2:
-            if ((current_time & MM_L2_MASK) && (blink || (current_state != FSM_SET_MM_L))) {
-                PORTA.DIRSET = MM_L2_LOW | MM_L2_HIGH;
-                PORTA.OUTSET = MM_L2_HIGH;
-                PORTA.OUTCLR = MM_L2_LOW;
-            }
-            current_led = LED_MM_L3;
+        case LED_CHUNK_2:
+            current_led_chunk = LED_CHUNK_3;
             break;
-
-        case LED_MM_L3:
-            if ((current_time & MM_L3_MASK) && (blink || (current_state != FSM_SET_MM_L))) {
-                PORTA.DIRSET = MM_L3_LOW | MM_L3_HIGH;
-                PORTA.OUTSET = MM_L3_HIGH;
-                PORTA.OUTCLR = MM_L3_LOW;
-            }
-            current_led = LED_MM_H0;
-            break;
-
-        case LED_MM_H0:
-            if ((current_time & MM_H0_MASK) && (blink || (current_state != FSM_SET_MM_H))) {
-                PORTA.DIRSET = MM_H0_LOW | MM_H0_HIGH;
-                PORTA.OUTSET = MM_H0_HIGH;
-                PORTA.OUTCLR = MM_H0_LOW;
-            }
-            current_led = LED_MM_H1;
-            break;
-
-        case LED_MM_H1:
-            if ((current_time & MM_H1_MASK) && (blink || (current_state != FSM_SET_MM_H))) {
-                PORTA.DIRSET = MM_H1_LOW | MM_H1_HIGH;
-                PORTA.OUTSET = MM_H1_HIGH;
-                PORTA.OUTCLR = MM_H1_LOW;
-            }
-            current_led = LED_MM_H2;
-            break;
-
-        case LED_MM_H2:
-            if ((current_time & MM_H2_MASK) && (blink || (current_state != FSM_SET_MM_H))) {
-                PORTA.DIRSET = MM_H2_LOW | MM_H2_HIGH;
-                PORTA.OUTSET = MM_H2_HIGH;
-                PORTA.OUTCLR = MM_H2_LOW;
-            }
-            current_led = LED_HH_L0;
-            break;
-
-        case LED_HH_L0:
-            if ((current_time & HH_L0_MASK) && (blink || (current_state != FSM_SET_HH))) {
-                PORTA.DIRSET = HH_L0_LOW | HH_L0_HIGH;
-                PORTA.OUTSET = HH_L0_HIGH;
-                PORTA.OUTCLR = HH_L0_LOW;
-            }
-            current_led = LED_HH_L1;
-            break;
-
-        case LED_HH_L1:
-            if ((current_time & HH_L1_MASK) && (blink || (current_state != FSM_SET_HH))) {
-                PORTA.DIRSET = HH_L1_LOW | HH_L1_HIGH;
-                PORTA.OUTSET = HH_L1_HIGH;
-                PORTA.OUTCLR = HH_L1_LOW;
-            }
-            current_led = LED_HH_L2;
-            break;
-
-        case LED_HH_L2:
-            if ((current_time & HH_L2_MASK) && (blink || (current_state != FSM_SET_HH))) {
-                PORTA.DIRSET = HH_L2_LOW | HH_L2_HIGH;
-                PORTA.OUTSET = HH_L2_HIGH;
-                PORTA.OUTCLR = HH_L2_LOW;
-            }
-            current_led = LED_HH_L3;
-            break;
-
-        case LED_HH_L3:
-            if ((current_time & HH_L3_MASK) && (blink || (current_state != FSM_SET_HH))) {
-                PORTA.DIRSET = HH_L3_LOW | HH_L3_HIGH;
-                PORTA.OUTSET = HH_L3_HIGH;
-                PORTA.OUTCLR = HH_L3_LOW;
-            }
-            current_led = LED_HH_H0;
-            break;
-
-        case LED_HH_H0:
-            if ((current_time & HH_H0_MASK) && (blink || (current_state != FSM_SET_HH))) {
-                PORTA.DIRSET = HH_H0_LOW | HH_H0_HIGH;
-                PORTA.OUTSET = HH_H0_HIGH;
-                PORTA.OUTCLR = HH_H0_LOW;
-            }
-            current_led = LED_MM_L0;
+        case LED_CHUNK_3:
+            current_led_chunk = LED_CHUNK_0;
             current_time = get_time();
             break;
     }
@@ -621,7 +559,7 @@ ISR(PORTA_PORT_vect) {
     TCB0.CTRLA |= TCB_ENABLE_bm;               // Enable TCB0
     TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm; // Enable TCA0
     current_state = FSM_DISPLAY;               // Initialize the FSM
-    current_led = LED_MM_L0;                   // Initialize the LED
+    current_led_chunk = LED_CHUNK_0;           // Initialize the LED
     current_time = get_time();                 // Initialize the time
     last_btn_state = BTN_NONE;                 // Initialize the last button
     debounce_cnt = 0;                          // Initialize the button counter

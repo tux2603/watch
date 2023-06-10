@@ -1,7 +1,7 @@
 // The frequency at which the charlieplexed LEDs are updated
-// Recommended range: 288Hz - 5000Hz
-// Default value: 720Hz
-#define UPDATE_FREQUENCY 720
+// Recommended range: 96Hz - 5000Hz
+// Default value: 480Hz
+#define UPDATE_FREQUENCY 480
 
 // The number of updates that the button state must be stable for before it is
 //  accepted as an input. If UPDATE_FREQUENCY is increased dramtically, this
