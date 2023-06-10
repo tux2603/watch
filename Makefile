@@ -2,7 +2,9 @@ MCU=attiny402
 MCU_ARCH=avrxmega3
 CFLAGS=-mmcu=$(MCU) -Os -g
 
-all: bin/main.hex src/main.S
+all: archive bin/main.hex src/main.S
+
+archive: pcb/gerbers.zip
 
 bin/main.hex: bin/main.elf
 	avr-objcopy -R .eeprom -O ihex bin/main.elf bin/main.hex
@@ -15,3 +17,6 @@ src/main.S: src/main.c src/config.h
 
 clean:
 	rm -f bin/main.elf bin/main.hex src/main.S
+
+pcb/gerbers.zip: pcb/gerber/*
+	cd pcb && zip gerbers.zip gerber/*

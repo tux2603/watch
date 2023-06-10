@@ -1306,10 +1306,10 @@
 
   (gr_arc (start 76.178 64.25) (mid 50.789077 63.5) (end 76.178 62.75) (layer "Edge.Cuts") (width 0.1) (tstamp 58283e3c-2434-4df1-a072-66c332218086))
   (gr_arc (start 76.178 64.25) (mid 75.405518 63.5) (end 76.178 62.75) (layer "Edge.Cuts") (width 0.1) (tstamp 747a0780-09b9-4e23-82ab-6f687587e62e))
-  (gr_text "Set" (at 59.69 73.66) (layer "F.SilkS") (tstamp 0b9ab7c8-fd2a-4b4f-a5bf-10595cbc934c)
+  (gr_text "Set" (at 67.31 73.66) (layer "F.SilkS") (tstamp 0b9ab7c8-fd2a-4b4f-a5bf-10595cbc934c)
     (effects (font (size 0.75 0.75) (thickness 0.15)))
   )
-  (gr_text "View" (at 67.31 73.66) (layer "F.SilkS") (tstamp 6f7384f8-0fa4-489e-882f-f96939a76e7c)
+  (gr_text "View" (at 59.69 73.66) (layer "F.SilkS") (tstamp 6f7384f8-0fa4-489e-882f-f96939a76e7c)
     (effects (font (size 0.75 0.75) (thickness 0.15)))
   )
   (gr_text "VCC" (at 54.61 66.675 90) (layer "F.SilkS") (tstamp a275884d-6794-4818-a952-1a4b10ede550)
