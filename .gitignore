@@ -10,3 +10,4 @@ bin/*
 watch.3mf
 cad/*.3mf
 pcb/gerber/*
+eeprom.bin

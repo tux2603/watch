@@ -19,8 +19,14 @@
 #define RESET_COUNT (RESET_HOLD_TIME * UPDATE_FREQUENCY)
 #define SET_BTN_THRESHOLD 0xC0
 #define VIEW_BTN_THRESHOLD 0x40
+#define BLINK_COUNT (uint16_t)(UPDATE_FREQUENCY / (2 * BLINK_FREQUENCY))
 
 #define EEPROM_TIME_ADDR 0x00
+#define EEPROM_TIME_SIZE 0x02
+#define EEPROM_CAL_ADDR 0x02
+#define EEPROM_CAL_SIZE 0x02
+#define EEPROM_MODE_ADDR 0x04
+#define EEPROM_MODE_SIZE 0x01
 
 
 // ##### Charlieplexing matrix data #####
@@ -75,12 +81,12 @@
 //  When the set button is pressed, the value in that nibble is incremented. When the view button
 //  is pressed, the next nibble is made active for setting. Note that since hours are a bit odd,
 //  HH_L and HH_H will be considered part of the same nibble for these purposes.
-// TODO: Check the visibility/usability of the 0.5Hz blink. Maybe some PWM style duty cycle would be more appropriate?
 typedef enum {
     FSM_DISPLAY = 0x00,
     FSM_SET_HH = 0x01,
     FSM_SET_MM_H = 0x02,
-    FSM_SET_MM_L = 0x03
+    FSM_SET_MM_L = 0x03,
+    FSM_BLANK = 0x04
 } fsm_state_t;
 
 typedef enum {
@@ -95,6 +101,12 @@ typedef enum {
     BTN_SET = 0x01,
     BTN_VIEW = 0x02
 } btn_state_t;
+
+typedef enum {
+    MODE_STD = 0x00,
+    MODE_CAL = 0x01
+} mode_t;
+
 
 
 // ##### LED data for smaller code size #####
@@ -124,13 +136,19 @@ const uint8_t led_blink_map[4][3] = {
     {FSM_SET_MM_L, FSM_SET_MM_H, FSM_SET_HH}};
 
 
-// ##### Volatile global variables #####
+// ##### Global variables #####
 
-volatile uint16_t current_time = 0x0000;              // The current time as a 16 bit BCD value, HH:MM
+mode_t active_mode; // The current mode of the device
+
+volatile uint16_t current_bcd_time = 0x0000;          // The current time as a 16 bit BCD value, HH:MM
+volatile uint16_t current_raw_time = 0x003b;          // The current time as minutes from 12:00
 volatile led_state_t current_led_chunk = LED_CHUNK_0; // The current LED being lit
 volatile fsm_state_t current_state = FSM_DISPLAY;     // The current state of the FSM
 volatile btn_state_t last_btn_state = BTN_NONE;       // The current button state
 volatile uint16_t debounce_cnt = 0;                   // The number of updates the button value has been stable
+volatile uint16_t blink_cnt = 0;                      // The number of updates since the last blink
+volatile uint8_t blink_state = 1;                     // The current state of the blinker
+volatile uint16_t sar_step_size = 0x2000;             // The current SAR step size
 
 
 // ##### Function declarations #####
@@ -159,7 +177,21 @@ uint16_t increment_time(uint8_t hh, uint8_t mm_h, uint8_t mm_l);
  * @brief Saves the current time to EEPROM and resets the device
  * 
  */
-void reset_device();
+void reset_device(mode_t reset_mode);
+
+
+/**
+ * @brief Initializes all registers, interrupts, etc, needed foe the watch to 
+ *  function in standard operating mode
+ */
+void init_std();
+
+
+/**
+ * @brief Initializes all registers, interrupts, etc, needed foe the watch to 
+ *  function in calibration mode
+ */
+void init_cal();
 
 
 
@@ -169,6 +201,38 @@ void reset_device();
 
 
 int main(void) {
+    // The mode is stored at EEPROM_MODE_ADDR in the eeprom. This value
+    //  is a 8 bit unsigned integer that is used to determine which mode
+    //  the device should start in. If the value is MODE_STD, the device
+    //  will start in standard operating mode. If the value is MODE_CAL,
+    //  the device will start in calibration mode. If the value is anything
+    //  else, the device will start in standard operating mode as a default.
+    active_mode = eeprom_read_byte((uint8_t *)EEPROM_MODE_ADDR);
+
+    if (active_mode == MODE_CAL)
+        init_cal();
+    else
+        init_std();
+
+    // Enable interrupts
+    CPU_SREG |= CPU_I_bm;
+
+
+    // Wait for the sleep bit to be set, then enter sleep mode
+    for (;;) {
+        while (!(SLPCTRL.CTRLA & SLPCTRL_SEN_bm)) continue;
+        asm("SLEEP");
+    }
+}
+
+
+
+// ###########################################################################
+// #####                         INIT FUNCTIONS                          #####
+// ###########################################################################
+
+
+void init_std() {
 
     // ##### Configure clocks #####
     // OSC20M will operate in 16MHz mode. CLK_MAIN and CLK_PER will both use
@@ -185,22 +249,29 @@ int main(void) {
     CLKCTRL.OSC32KCTRLA |= CLKCTRL_RUNSTDBY_bm;    // Enable the 32kHz oscillator in standby mode
 
 
+    // ##### Load RTC calibration data from EEPROM #####
+    // RTC period offset is stored at EEPROM_CAL_ADDR in the eeprom. This value
+    //  is a 16 bit signed integer that is added to base value of the RTC
+    //  period register to help account for clock drift.
+    uint16_t rtc_period = eeprom_read_word((uint16_t *)EEPROM_CAL_ADDR);
+
+
     // ##### Configure RTC #####
-    // The RTC will be used to keep track of the elapsed time in seconds since 12:00.
-    //  Once the time hits 12:00, it will reset to 0. This will be used to keep track
-    //  of the time even when the device is in sleep mode.
-    while (RTC.STATUS & RTC_CTRLABUSY_bm) continue;           // Wait for the RTC CTRLA register to be ready to be configured
-    RTC.CTRLA |= RTC_PRESCALER_DIV32768_gc | RTC_RUNSTDBY_bm; // Set the RTC prescaler to 32768 and enable it in standby mode
-    RTC.CLKSEL |= RTC_CLKSEL_INT32K_gc;                       // Set the RTC clock source to the 32kHz oscillator
-    while (RTC.STATUS & RTC_CNTBUSY_bm) continue;             // Wait for the RTC CNT register to be ready to be configured
-    RTC.CNT = 0x0DD4;                                         // Set the RTC count to 12:59
-    while (RTC.STATUS & RTC_PERBUSY_bm) continue;             // Wait for the RTC PER register to be ready to be configured
-    RTC.PER = 43199u;                                         // Set the RTC period to 12 hours
-    while (RTC.STATUS & RTC_CTRLABUSY_bm) continue;           // Wait for the RTC CTRLA register to be ready to be configured
-    RTC.CTRLA |= RTC_RTCEN_bm;                                // Enable the RTC
+    // The RTC will trigger an overflow every minute and trigger an interrupt
+    //  that will wake the device from standby if necessary and increment the
+    //  raw time value
+    while (RTC.STATUS & RTC_CTRLABUSY_bm) continue;         // Wait for the RTC CTRLA register to be ready to be configured
+    RTC.CTRLA |= RTC_PRESCALER_DIV128_gc | RTC_RUNSTDBY_bm; // Set the RTC prescaler to 128 and enable it in standby mode
+    RTC.CLKSEL |= RTC_CLKSEL_INT32K_gc;                     // Set the RTC clock source to the 32kHz oscillator
+    while (RTC.STATUS & RTC_PERBUSY_bm) continue;           // Wait for the RTC PER register to be ready to be configured
+    RTC.PER = rtc_period;                                   // Set the RTC period to the calibrated value
+    RTC.INTCTRL |= RTC_OVF_bm;                              // Enable the RTC overflow interrupt
+    while (RTC.STATUS & RTC_CTRLABUSY_bm) continue;         // Wait for the RTC CTRLA register to be ready to be configured
+    RTC.CTRLA |= RTC_RTCEN_bm;                              // Enable the RTC
 
 
     // ##### Configure CPUINT #####
+    // TODO: The window comparison doesn't seem to be working
     // Five interrupts will be used:
     //  - TCA overflow will trigger the device to enter standby, and has the highest priority
     //  - TCB overflow will trigger the LEDs to update
@@ -241,22 +312,21 @@ int main(void) {
     // The ADC will trigger another interrupt when the voltage falls below 0.75*Vdd
     ADC0.CTRLA |= ADC_RESSEL_8BIT_gc;   // Set the ADC resolution to 8-bit
     ADC0.CTRLC |= ADC_REFSEL0_bm;       // Set the ADC to use Vdd as reference
-    ADC0.CTRLC |= ADC_PRESC_DIV2_gc;    // Set the ADC clock prescaler to CLK_PER/2, or 250kHz/2 = 125kHz
+    ADC0.CTRLC |= ADC_PRESC_DIV8_gc;    // Set the ADC clock prescaler to CLK_PER/8, or 1MHz/8 = 125kHz
     ADC0.CTRLD |= ADC_INITDLY_DLY32_gc; // Set the ADC sampling delay to 32 CLK_ADC cycles after enabling
     ADC0.CTRLE |= ADC_WINCM_BELOW_gc;   // Set the ADC window mode to below
     ADC0.MUXPOS |= ADC_MUXPOS_AIN1_gc;  // Set the ADC input to PA1
     ADC0.EVCTRL |= ADC_STARTEI_bm;      // Set the ADC to be triggered by the event system
+    ADC0.WINLT = SET_BTN_THRESHOLD;     // Set the ADC window comparator low threshold to ~0.75*Vdd
     ADC0.INTCTRL |= ADC_RESRDY_bm;      // Enable the ADC result ready interrupt
     ADC0.INTCTRL |= ADC_WCMP_bm;        // Enable the ADC window comparator interrupt
-    ADC0.WINLT = SET_BTN_THRESHOLD;     // Set the ADC window comparator low threshold to ~0.75*Vdd
     ADC0.CTRLA |= ADC_ENABLE_bm;        // Enable the ADC
 
 
     // ##### Configure PORTA #####
     // The default state of all pins will be inputs with pull-ups disabled. PA2, PA3, PA6, and PA7
     //  are used to charlieplex a matrix of 12 LEDs, and will be toggled to digital outputs
-    //  as appropriate in a timed interrupt.
-    // PA1 will be a digital input with an attached interrupt that is triggered on a low level.
+    //  as appropriate in a timed interrupt.:hat is triggered on a low level.
     PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7; // Set LED pins to inputs
     PORTA.DIRCLR = PA1;                   // Set the switch pin to an input
     PORTA.PIN1CTRL |= PORT_ISC_LEVEL_gc;  // Set the switch pin to trigger an interrupt on a low level
@@ -264,41 +334,130 @@ int main(void) {
 
     // ##### Load time data from EEPROM #####
 
-    // // Load data from EEPROM if there was a software reset
-    // if (RSTCTRL.RSTFR & RSTCTRL_SWRF_bm) {
-    //     // load the data and write it to the current time
-    //     uint16_t saved_time = eeprom_read_word((uint16_t *)EEPROM_TIME_ADDR);
+    // Load data from EEPROM if there was a software reset
+    if (RSTCTRL.RSTFR & RSTCTRL_SWRF_bm) {
+        // load the data and write it to the current time
+        current_raw_time = eeprom_read_word((uint16_t *)EEPROM_TIME_ADDR);
 
-    //     // re-initialize the RTC with the time loaded from EEPROM
-    //     while (RTC.STATUS & RTC_CNTBUSY_bm) continue;
-    //     RTC.CNT = saved_time;
-
-    //     // load the value into the current time variable and set the state to display
-    //     current_time = get_time();
-    //     current_state = FSM_DISPLAY;
-    // }
-
-    // // If the software reset flag wasn't set, the device most likely lost power
-    // //  and the time wasn't saved. in this case, the FSM should start in the
-    // //  FSM_SET_HH state so that the user can enter the correct time
-    // else {
-    //     current_state = FSM_SET_HH;
-    // }
-
-    // For now just default to starting in the set time state
-    current_state = FSM_DISPLAY;
-
-    // ##### Ready to go! Turn everything on #####
-
-    // Enable interrupts
-    sei();
-
-
-    for (;;) {
-        // Wait for the enter sleep bit to be set
-        while (!(SLPCTRL.CTRLA & SLPCTRL_SEN_bm)) continue;
-        sleep_cpu(); // Enter standby mode
+        // parse the value into the current time variable and set the state to display
+        current_bcd_time = get_time();
+        current_state = FSM_DISPLAY;
     }
+
+    // If the software reset flag wasn't set, the device most likely lost power
+    //  and the time wasn't saved. in this case, the FSM should start in the
+    //  FSM_SET_HH state so that the user can enter the correct time
+    else {
+        current_state = FSM_SET_HH;
+    }
+}
+
+
+void init_cal() {
+
+    // To calibrate the watch, a square wave with a period of ~468.75ms will be generated
+    //  on PA2. This square wave will be measured with an external oscilloscope, and the
+    //  RTC period register will be adjusted through SAR until the measured period is within
+    //  10us of 468.75ms. Once the period is within tolerance, the value of the RTC period
+    //  register will be saved to EEPROM and the device will be reset into standard operating
+    //  mode.
+    //
+    // If the ULP oscillator is operating at it's nominal frequency of 32.768kHz, the resulting
+    //  RTC period register value should be 0x3C00, so this value will be used as the default
+    //  value to begin the SAR process. The ULP oscillator is only garunteed to be accurate to
+    //  +/- 10% within the expected operational range of the watch, so realistically the RTC
+    //  period register will vary between 0x3600 and 0x4200. This means that the SAR process
+    //  should start with an initial value of 0x4000, initial step size of 0x1000, This will
+    //  allow the SAR process to cover the entire expected range of the RTC period register
+    //  in 10 steps.
+    //
+    // After calibration, the watch will initially have a drift of no more than 10us per
+    //  468.75ms or ~20ppm. This means that the watch will gain or lose about one minute
+    //  every month. Unfortunately it's likely that the frequency of the ULP oscillator will
+    //  drift over time as the temperature changes or the battery discharges, so the actual
+    //  accuracy of the watch will likely be significantly worse than this estimate. One
+    //  method to improve the accuracy of the watch would be to calibrate the RTC period
+    //  for multiple different battery voltages and use interpolation between the two
+    //  nearest calibration points to determine the correct RTC period for the current
+    //  battery voltage.
+
+
+    // ##### Configure clocks #####
+    // OSC20M will operate in 16MHz mode. At 1MHz, the maximum delay between the RTC
+    //  overflowing and the interrupt being triggered will be 1us, which is well below the
+    //  +/- 10us tolerance that will be used for calibration.
+    CCP = CCP_IOREG_gc;                            // Allow access to protected registers
+    CLKCTRL.MCLKCTRLA |= CLKCTRL_CLKSEL_OSC20M_gc; // Set the main clock to OSC20M
+    CCP = CCP_IOREG_gc;                            // Allow access to protected registers
+    CLKCTRL.MCLKCTRLB |= CLKCTRL_PDIV_16X_gc;      // Set the main clock prescaler to /16
+    CCP = CCP_IOREG_gc;                            // Allow access to protected registers
+    CLKCTRL.MCLKCTRLB |= CLKCTRL_PEN_bm;           // Enable the main clock prescaler
+    CCP = CCP_IOREG_gc;                            // Allow access to protected registers
+    CLKCTRL.MCLKLOCK |= CLKCTRL_LOCKEN_bm;         // Lock the main clock registers
+
+
+    // ##### Configure RTC #####
+    // The RTC will be used to trigger an interrupt to generate a square wave on PA2 with a
+    //  period of ~1.875 seconds. The actual period of the square wave will be measured with
+    //  an external oscilloscope, and the RTC period will be adjusted through SAR until the
+    //  period is 1.875 seconds, +/- 10us.
+    while (RTC.STATUS & RTC_CTRLABUSY_bm) continue; // Wait for the RTC CTRLA register to be ready to be configured
+    RTC.CTRLA |= RTC_PRESCALER_DIV1_gc;             // Set the RTC prescaler to 1
+    RTC.CLKSEL |= RTC_CLKSEL_INT32K_gc;             // Set the RTC clock source to the 32kHz oscillator
+    while (RTC.STATUS & RTC_PERBUSY_bm) continue;   // Wait for the RTC PER register to be ready to be configured
+    RTC.PER = 0x4000u;                              // Set the RTC period to 500ms
+    while (RTC.STATUS & RTC_CMPBUSY_bm) continue;   // Wait for the RTC CMP register to be ready to be configured
+    RTC.CMP = 0x2000u;                              // Set the RTC compare to 250ms
+    RTC.INTCTRL |= RTC_OVF_bm;                      // Enable the RTC overflow interrupt
+    RTC.INTCTRL |= RTC_CMP_bm;                      // Enable the RTC compare interrupt
+    while (RTC.STATUS & RTC_CTRLABUSY_bm) continue; // Wait for the RTC CTRLA register to be ready to be configured
+    RTC.CTRLA |= RTC_RTCEN_bm;                      // Enable the RTC
+
+
+
+    // ##### Configure CPUINT #####
+    // Two interrupts will be used:
+    //  - ADC conversion will perform SAR updates
+    //  - RTC overflow and compare will trigger the square wave generation
+    CCP = CCP_IOREG_gc;                // Allow access to protected registers
+    CPUINT.CTRLA |= CPUINT_LVL0RR_bm;  // Enable round-robin scheduling
+    CPUINT.LVL1VEC = RTC_CNT_vect_num; // Set the RTC overflow and compare interrupt to priority level 1
+
+
+    // ##### Configure EVSYS #####
+    // When TCB overflows, and event will be generated that will trigger the ADC to begin a conversion
+    EVSYS.SYNCCH0 = EVSYS_SYNCCH0_TCB0_gc;          // Set the TCB overflow event to trigger sync channel 0
+    EVSYS.ASYNCUSER1 = EVSYS_ASYNCUSER9_SYNCCH0_gc; // Set the ADC to be triggered by sync channel 0
+
+
+    // ##### Configure TCB #####
+    // TCB will trigger the ADC to check the button states at UPDATE_FREQUENCY Hz
+    TCB0.CCMP = F_CPU / UPDATE_FREQUENCY - 1; // Set TCB's compare value to trigger at UPDATE_FREQUENCY Hz
+    TCB0.CTRLA |= TCB_ENABLE_bm;              // Set the TCB clock source to TCA, and enable the TCB
+
+
+    // ##### Configure ADC #####
+    // The device doesn't need the full resolution, so use 8-bit mode
+    // The ADC will be triggered by TCB, and will trigger an interrupt when the conversion is complete
+    ADC0.CTRLA |= ADC_RESSEL_8BIT_gc;   // Set the ADC resolution to 8-bit
+    ADC0.CTRLC |= ADC_REFSEL0_bm;       // Set the ADC to use Vdd as reference
+    ADC0.CTRLC |= ADC_PRESC_DIV8_gc;    // Set the ADC clock prescaler to CLK_PER/8, or 1MHz/8 = 125kHz
+    ADC0.CTRLD |= ADC_INITDLY_DLY32_gc; // Set the ADC sampling delay to 32 CLK_ADC cycles after enabling
+    ADC0.MUXPOS |= ADC_MUXPOS_AIN1_gc;  // Set the ADC input to PA1
+    ADC0.EVCTRL |= ADC_STARTEI_bm;      // Set the ADC to be triggered by the event system
+    ADC0.INTCTRL |= ADC_RESRDY_bm;      // Enable the ADC result ready interrupt
+    ADC0.CTRLA |= ADC_ENABLE_bm;        // Enable the ADC
+
+
+    // ##### Configure PORTA #####
+    // PA1 will be used as an analog input, PA2 will be used as a digital output
+    //  for the square wave, and PA3 will be a digital output with a constant value
+    //  of Vdd so that the bottom right LED will light up when the square wave is active
+    PORTA.DIRCLR = PA1; // Set the switch pin to an input
+    PORTA.DIRSET = PA2; // Set the square wave pin to an output
+    PORTA.OUTCLR = PA2; // Set the square wave pin to low
+    PORTA.DIRSET = PA3; // Set the constant Vdd pin to an output
+    PORTA.OUTSET = PA3; // Set the constant Vdd pin to high
 }
 
 
@@ -313,12 +472,11 @@ int main(void) {
 uint16_t get_time() {
     // Time is stored as the number of seconds elapsed since 12:00
     // Due to hardware limitations, this value will reset every 12 hours
-    uint16_t time = RTC.CNT;
+    uint16_t time = current_raw_time;
 
     // Get all the various chunks of the time
-    uint8_t seconds = time % 60;
-    uint8_t minutes = (time / 60) % 60;
-    uint8_t hours = (time / 3600);
+    uint8_t minutes = time % 60;
+    uint8_t hours = time / 60;
 
     // Make sure that 12:00 is displayed as 12:00, not 00:00
     if (hours == 0) hours = 12;
@@ -351,32 +509,37 @@ uint16_t increment_time(uint8_t hh, uint8_t mm_h, uint8_t mm_l) {
     // Note that 12:00 is represented as 00:00 internally
     if (current_mm_l > 9) current_mm_l = 0;
     if (current_mm_h > 5) current_mm_h = 0;
-    if (current_hh > 12) current_hh = 1;
+    if (current_hh > 11) current_hh -= 12;
 
-    // Convert the time back to seconds
-    time = (current_hh * 3600) + (current_mm_h * 600) + (current_mm_l * 60);
+    // Write the time back to the raw time variable
+    current_raw_time = current_hh * 60 + current_mm_h * 10 + current_mm_l;
 
-    // Save the new time to the RTC
-    while (RTC.STATUS & RTC_CNTBUSY_bm) continue;
-    RTC.CNT = time;
+    // Reset the blinker
+    blink_cnt = 0;
+    blink_state = 1;
 
-    // Convert the new time back to BCD and return it
-    time = (current_hh / 10) << 12 | (current_hh % 10) << 8;
-    time |= (current_mm_h << 4) | current_mm_l;
-    return time;
+    // Return the new time
+    return get_time();
 }
 
 
 // ##### Trigger a device reset #####
 
-void reset_device() {
-    // // Save the current time to EEPROM
-    // uint16_t time = RTC.CNT;
-    // eeprom_write_word((uint16_t *)EEPROM_TIME_ADDR, time);
+void reset_device(mode_t reset_mode) {
+    // Save the current time to EEPROM
+    uint16_t time = current_raw_time;
+    eeprom_write_word((uint16_t *)EEPROM_TIME_ADDR, time);
+    while (NVMCTRL.STATUS & NVMCTRL_EEBUSY_bm) continue;
 
-    // // Trigger a software reset
-    // CCP = CCP_IOREG_gc;
-    // RSTCTRL.SWRR = RSTCTRL_SWRE_bm;
+    // If the mode requested to be reset to is not the same as the current mode, write the new mode to EEPROM
+    if (reset_mode != active_mode) {
+        eeprom_write_byte((uint8_t *)EEPROM_MODE_ADDR, reset_mode);
+        while (NVMCTRL.STATUS & NVMCTRL_EEBUSY_bm) continue;
+    }
+
+    // Trigger a software reset
+    CCP = CCP_IOREG_gc;
+    RSTCTRL.SWRR = RSTCTRL_SWRE_bm;
 }
 
 
@@ -402,6 +565,7 @@ ISR(TCA0_OVF_vect) {
 
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;   // Clear the interrupt flag
     if (current_state != FSM_DISPLAY) return;   // Only enter sleep if not on one of the set modes
+    current_state == FSM_BLANK;                 // Set the state to blank
     PORTA.OUTCLR = PA2 | PA3 | PA6 | PA7;       // Set all four LED pins to low
     PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7;       // Set all four LED pins to be inputs
     TCA0.SINGLE.CTRLA &= ~TCA_SINGLE_ENABLE_bm; // Disable TCA0
@@ -423,9 +587,14 @@ ISR(TCB0_INT_vect) {
     PORTA.OUTCLR = PA2 | PA3 | PA6 | PA7;
     PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7;
 
+    // Only power LEDs if the current FSM state isn't FSM_BLANK
+    if (current_state == FSM_BLANK) return;
 
     // Figure out if we need to be blinking right now
-    uint8_t blink = ~RTC.CNT & 0x0001;
+    if (++blink_cnt >= BLINK_COUNT) {
+        blink_cnt = 0;
+        blink_state = !blink_state;
+    }
 
     // LEDs are updated in chunks of three. Set the high pin for the current
     //  chunk to be an output and write a 1 to the set bit. Then set all of the low
@@ -434,13 +603,13 @@ ISR(TCB0_INT_vect) {
     PORTA.DIRSET = led_high_pins[current_led_chunk];
     PORTA.OUTSET = led_high_pins[current_led_chunk];
 
-    if (current_time & led_masks[current_led_chunk][0] && (blink || current_state != led_blink_map[current_led_chunk][0]))
+    if (current_bcd_time & led_masks[current_led_chunk][0] && (blink_state || current_state != led_blink_map[current_led_chunk][0]))
         PORTA.DIRSET = led_low_pins[current_led_chunk][0];
 
-    if (current_time & led_masks[current_led_chunk][1] && (blink || current_state != led_blink_map[current_led_chunk][1]))
+    if (current_bcd_time & led_masks[current_led_chunk][1] && (blink_state || current_state != led_blink_map[current_led_chunk][1]))
         PORTA.DIRSET = led_low_pins[current_led_chunk][1];
 
-    if (current_time & led_masks[current_led_chunk][2] && (blink || current_state != led_blink_map[current_led_chunk][2]))
+    if (current_bcd_time & led_masks[current_led_chunk][2] && (blink_state || current_state != led_blink_map[current_led_chunk][2]))
         PORTA.DIRSET = led_low_pins[current_led_chunk][2];
 
     switch (current_led_chunk) {
@@ -455,7 +624,7 @@ ISR(TCB0_INT_vect) {
             break;
         case LED_CHUNK_3:
             current_led_chunk = LED_CHUNK_0;
-            current_time = get_time();
+            current_bcd_time = get_time();
             break;
     }
 }
@@ -495,12 +664,15 @@ ISR(ADC0_RESRDY_vect) {
 
     // If the debounce counter has reached the debounce threshold, we have a valid input.
     //  update the FSM based on said input
-    if (debounce_cnt == DEBOUNCE_COUNT) {
+    if (debounce_cnt == DEBOUNCE_COUNT && active_mode == MODE_STD) {
         switch (current_state) {
             // If the set button is pressed in the display state, enter the set hour state
             case FSM_DISPLAY:
+            case FSM_BLANK:
                 if (btn_state == BTN_SET)
                     current_state = FSM_SET_HH;
+                else if (btn_state == BTN_VIEW)
+                    current_state = FSM_DISPLAY;
                 break;
 
             // If the set button is pressed in the hour state, enter the first set minute state
@@ -524,17 +696,58 @@ ISR(ADC0_RESRDY_vect) {
             // If the set button is pressed in the low minute state, enter the display state
             // If the view button is pressed in the low minute state, increment the time by one minute
             case FSM_SET_MM_L:
-                if (btn_state == BTN_SET)
+                if (btn_state == BTN_SET) {
+                    // Start counting from the beginning of the current minute and then re-enter display mode
+                    while (RTC.STATUS & RTC_CNTBUSY_bm) continue;
+                    RTC.CNT = 0x0000;
                     current_state = FSM_DISPLAY;
+                }
+
                 else if (btn_state == BTN_VIEW)
                     increment_time(0, 0, 1);
                 break;
         }
     }
 
-    // // If the debounce counter has reached the reset threshold, reset the device.
-    // if (debounce_cnt == RESET_HOLD_TIME)
-    //     reset_device();
+    // If the debounce counter has reached the debounce threshold, we have a valid input.
+    //  Perform the next SAR step based on said input
+    if (debounce_cnt == DEBOUNCE_COUNT && active_mode == MODE_CAL) {
+        if (btn_state == BTN_VIEW) {
+            uint16_t rtc_period = RTC.PER - sar_step_size;
+            while (RTC.STATUS & RTC_PERBUSY_bm) continue;
+            RTC.PER = rtc_period;
+            while (RTC.STATUS & RTC_CMPBUSY_bm) continue;
+            RTC.CMP = rtc_period >> 1;
+        }
+
+        else if (btn_state == BTN_SET) {
+            uint16_t rtc_period = RTC.PER + sar_step_size;
+            while (RTC.STATUS & RTC_PERBUSY_bm) continue;
+            RTC.PER = rtc_period;
+            while (RTC.STATUS & RTC_CMPBUSY_bm) continue;
+            RTC.CMP = rtc_period >> 1;
+        }
+
+        sar_step_size >>= 1;
+
+        if (sar_step_size == 0) {
+            // Save the new RTC period to EEPROM
+            uint16_t rtc_period = RTC.PER;
+            eeprom_write_word((uint16_t *)EEPROM_CAL_ADDR, rtc_period);
+            while (NVMCTRL.STATUS & NVMCTRL_EEBUSY_bm) continue;
+
+            // Reset the device into standard mode
+            reset_device(MODE_STD);
+        }
+    }
+
+    // Reset functionality works the same no matter what mode the device is in
+    if (debounce_cnt == RESET_COUNT) {
+        if (btn_state == BTN_VIEW)
+            reset_device(MODE_STD);
+        if (btn_state == BTN_SET)
+            reset_device(MODE_CAL);
+    }
 }
 
 
@@ -558,11 +771,30 @@ ISR(PORTA_PORT_vect) {
     ADC0.CTRLA |= ADC_ENABLE_bm;               // Enable ADC0
     TCB0.CTRLA |= TCB_ENABLE_bm;               // Enable TCB0
     TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm; // Enable TCA0
-    current_state = FSM_DISPLAY;               // Initialize the FSM
-    current_led_chunk = LED_CHUNK_0;           // Initialize the LED
-    current_time = get_time();                 // Initialize the time
-    last_btn_state = BTN_NONE;                 // Initialize the last button
-    debounce_cnt = 0;                          // Initialize the button counter
     PORTA.PIN1CTRL &= ~PORT_ISC_gm;            // Set the switch pin to not trigger an interrupt
     SLPCTRL.CTRLA &= ~SLPCTRL_SEN_bm;          // Clear the sleep bit
+    current_state = FSM_DISPLAY;               // Initialize the FSM
+    current_led_chunk = LED_CHUNK_0;           // Initialize the LED
+    current_bcd_time = get_time();             // Initialize the time
+    last_btn_state = BTN_NONE;                 // Initialize the last button
+    debounce_cnt = 0;                          // Initialize the button counter
+}
+
+
+// ##### RTC Overflow and Compare Interrupt #####
+
+ISR(RTC_CNT_vect) {
+    // Clear the interrupt flag
+    RTC.INTFLAGS = RTC_OVF_bm | RTC_CMP_bm;
+
+    if (active_mode == MODE_CAL) {
+        // Toggle the square wave pin
+        PORTA.OUTTGL = PA2;
+    }
+
+    else {
+        current_raw_time++;                                   // Increment the raw time value
+        if (current_raw_time >= 0x02D0) current_raw_time = 0; // Reset the raw time value if it's greater than 720
+        current_bcd_time = get_time();                        // Update the BCD time value
+    }
 }

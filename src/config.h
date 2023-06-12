@@ -3,6 +3,12 @@
 // Default value: 480Hz
 #define UPDATE_FREQUENCY 480
 
+// The frequency at which the currently selected digit will be blinked
+//  while the time is being set
+// Recommended range: 0.25Hz - 2Hz
+// Default value: 1Hz
+#define BLINK_FREQUENCY 1
+
 // The number of updates that the button state must be stable for before it is
 //  accepted as an input. If UPDATE_FREQUENCY is increased dramtically, this
 //  value may also need to be increased to prevent double inputs.
