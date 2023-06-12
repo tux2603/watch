@@ -1,10 +1,14 @@
 MCU=attiny402
 MCU_ARCH=avrxmega3
 CFLAGS=-mmcu=$(MCU) -Os -g
+PORT=/dev/ttyACM0
 
 all: archive bin/main.hex src/main.S
 
 archive: pcb/gerbers.zip
+
+flash: bin/main.hex bin/eeprom.hex
+	avrdude -v -c jtag2updi -P $(PORT) -p t402 -U flash:w:bin/main.hex -U eeprom:w:bin/eeprom.hex
 
 bin/main.hex: bin/main.elf
 	avr-objcopy -R .eeprom -O ihex bin/main.elf bin/main.hex
