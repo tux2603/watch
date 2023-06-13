@@ -1,4 +1,4 @@
 (sym_lib_table
   (lib (name "Push Button")(type "KiCad")(uri "${KIPRJMOD}/custom_parts/EVP-AA202K/EVP-AA202K.kicad_sym")(options "")(descr ""))
-  (lib (name "Battery Holder")(type "KiCad")(uri "${KIPRJMOD}/custom_parts/BK-916-CT-ND/BK-916-TR.kicad_sym")(options "")(descr ""))
+  (lib (name "Battery Holder")(type "KiCad")(uri "${KIPRJMOD}/custom_parts/BAT-HLD-001-TR/BAT-HLD-001-TR.kicad_sym")(options "")(descr ""))
 )

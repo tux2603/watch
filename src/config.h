@@ -10,7 +10,7 @@
 #define BLINK_FREQUENCY 1
 
 // The number of updates that the button state must be stable for before it is
-//  accepted as an input. If UPDATE_FREQUENCY is increased dramtically, this
+//  accepted as an input. If UPDATE_FREQUENCY is increased dramatically, this
 //  value may also need to be increased to prevent double inputs.
 // Recommended range 5-500
 // Default value: 50
@@ -30,4 +30,4 @@
 // The revision of the PCB being programmed. Different PCB versions have different
 //  pinouts and for the LED matrix.
 // Valid values: 1, 2
-#define PCB_REVISION 1
+#define PCB_REVISION 2

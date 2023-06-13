@@ -1,4 +1,4 @@
 (fp_lib_table
   (lib (name "Push Button")(type "KiCad")(uri "${KIPRJMOD}/custom_parts/EVP-AA202K/footprints.pretty")(options "")(descr ""))
-  (lib (name "Battery Holder")(type "KiCad")(uri "${KIPRJMOD}/custom_parts/BK-916-CT-ND")(options "")(descr ""))
+  (lib (name "Battery Holder")(type "KiCad")(uri "${KIPRJMOD}/custom_parts/BAT-HLD-001-TR")(options "")(descr ""))
 )
