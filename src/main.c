@@ -21,12 +21,13 @@
 #define VIEW_BTN_THRESHOLD 0x40
 #define BLINK_COUNT (uint16_t)(UPDATE_FREQUENCY / (2 * BLINK_FREQUENCY))
 
-#define EEPROM_TIME_ADDR 0x00
-#define EEPROM_TIME_SIZE 0x02
-#define EEPROM_CAL_ADDR 0x02
-#define EEPROM_CAL_SIZE 0x02
-#define EEPROM_MODE_ADDR 0x04
-#define EEPROM_MODE_SIZE 0x01
+
+// ##### EEPROM data addresses #####
+
+#define EEPROM_TIME_ADDR 0x00    // Two byte address where the current time is stored while restarting
+#define EEPROM_CAL_ADDR 0x02     // Two byte address where the calibrated RTC period is stored
+#define EEPROM_MODE_ADDR 0x04    // One byte address to indicate which mode the device should start in
+#define EEPROM_BTN_CAL_ADDR 0x05 // One byte address to indicate whether or not the device should enter calibration when the set button is held
 
 
 // ##### Charlieplexing matrix data #####
@@ -45,33 +46,69 @@
 #define HH_L3_MASK 0x0800
 #define HH_H0_MASK 0x1000
 
-// Pins to write high for each of the bits in the BCD nibbles
-#define MM_L0_HIGH PA3
-#define MM_L1_HIGH PA7
-#define MM_L2_HIGH PA2
-#define MM_L3_HIGH PA2
-#define MM_H0_HIGH PA2
-#define MM_H1_HIGH PA6
-#define MM_H2_HIGH PA7
-#define HH_L0_HIGH PA7
-#define HH_L1_HIGH PA6
-#define HH_L2_HIGH PA3
-#define HH_L3_HIGH PA6
-#define HH_H0_HIGH PA3
 
-// Pins to write low for each of the BCD nibbles
-#define MM_L0_LOW PA2
-#define MM_L1_LOW PA2
-#define MM_L2_LOW PA7
-#define MM_L3_LOW PA6
-#define MM_H0_LOW PA3
-#define MM_H1_LOW PA3
-#define MM_H2_LOW PA6
-#define HH_L0_LOW PA3
-#define HH_L1_LOW PA2
-#define HH_L2_LOW PA6
-#define HH_L3_LOW PA7
-#define HH_H0_LOW PA7
+#if PCB_REVISION == 1
+
+// Pins to write high for each of the time bits
+#    define MM_L0_HIGH PA3
+#    define MM_L1_HIGH PA7
+#    define MM_L2_HIGH PA2
+#    define MM_L3_HIGH PA2
+#    define MM_H0_HIGH PA2
+#    define MM_H1_HIGH PA6
+#    define MM_H2_HIGH PA7
+#    define HH_L0_HIGH PA7
+#    define HH_L1_HIGH PA6
+#    define HH_L2_HIGH PA3
+#    define HH_L3_HIGH PA6
+#    define HH_H0_HIGH PA3
+
+// Pins to write low for each of the time bits
+#    define MM_L0_LOW PA2
+#    define MM_L1_LOW PA2
+#    define MM_L2_LOW PA7
+#    define MM_L3_LOW PA6
+#    define MM_H0_LOW PA3
+#    define MM_H1_LOW PA3
+#    define MM_H2_LOW PA6
+#    define HH_L0_LOW PA3
+#    define HH_L1_LOW PA2
+#    define HH_L2_LOW PA6
+#    define HH_L3_LOW PA7
+#    define HH_H0_LOW PA7
+
+#elif PCB_REVISION == 2
+
+// Pins to write high for each of the time bits
+#    define MM_L0_HIGH PA3
+#    define MM_L1_HIGH PA7
+#    define MM_L2_HIGH PA3
+#    define MM_L3_HIGH PA6
+#    define MM_H0_HIGH PA2
+#    define MM_H1_HIGH PA6
+#    define MM_H2_HIGH PA7
+#    define HH_L0_HIGH PA7
+#    define HH_L1_HIGH PA2
+#    define HH_L2_HIGH PA3
+#    define HH_L3_HIGH PA6
+#    define HH_H0_HIGH PA2
+
+// Pins to write low for each of the time bits
+#    define MM_L0_LOW PA2
+#    define MM_L1_LOW PA3
+#    define MM_L2_LOW PA7
+#    define MM_L3_LOW PA3
+#    define MM_H0_LOW PA3
+#    define MM_H1_LOW PA2
+#    define MM_H2_LOW PA6
+#    define HH_L0_LOW PA2
+#    define HH_L1_LOW PA6
+#    define HH_L2_LOW PA6
+#    define HH_L3_LOW PA7
+#    define HH_H0_LOW PA7
+
+#endif
+
 
 
 // ##### Various enums for data storage #####
@@ -111,23 +148,24 @@ typedef enum {
 
 // ##### LED data for smaller code size #####
 
-const uint8_t led_high_pins[4] = {
-    MM_L2_HIGH | MM_L3_HIGH | MM_H0_HIGH,
-    MM_L0_HIGH | HH_L2_HIGH | HH_H0_HIGH,
-    MM_H1_HIGH | HH_L1_HIGH | HH_L3_HIGH,
-    MM_L1_HIGH | MM_H2_HIGH | HH_L0_HIGH};
+
+
+const uint8_t led_high_pins[4] = {PA2, PA3, PA6, PA7};
 
 const uint8_t led_low_pins[4][3] = {
-    {MM_L2_LOW, MM_L3_LOW, MM_H0_LOW},
-    {MM_L0_LOW, HH_L2_LOW, HH_H0_LOW},
-    {MM_H1_LOW, HH_L1_LOW, HH_L3_LOW},
-    {MM_L1_LOW, MM_H2_LOW, HH_L0_LOW}};
+    {PA3, PA6, PA7},
+    {PA2, PA6, PA7},
+    {PA2, PA3, PA7},
+    {PA2, PA3, PA6}};
+
+
+#if PCB_REVISION == 1
 
 const uint16_t led_masks[4][3] = {
-    {MM_L2_MASK, MM_L3_MASK, MM_H0_MASK},
+    {MM_H0_MASK, MM_L3_MASK, MM_H0_MASK},
     {MM_L0_MASK, HH_L2_MASK, HH_H0_MASK},
-    {MM_H1_MASK, HH_L1_MASK, HH_L3_MASK},
-    {MM_L1_MASK, MM_H2_MASK, HH_L0_MASK}};
+    {HH_L1_MASK, MM_H1_MASK, HH_L3_MASK},
+    {MM_L1_MASK, HH_L0_MASK, MM_H2_MASK}};
 
 const uint8_t led_blink_map[4][3] = {
     {FSM_SET_MM_L, FSM_SET_MM_L, FSM_SET_MM_H},
@@ -135,10 +173,27 @@ const uint8_t led_blink_map[4][3] = {
     {FSM_SET_MM_H, FSM_SET_HH, FSM_SET_HH},
     {FSM_SET_MM_L, FSM_SET_MM_H, FSM_SET_HH}};
 
+#elif PCB_REVISION == 2
+
+const uint16_t led_masks[4][3] = {
+    {MM_H0_MASK, HH_L1_MASK, HH_H0_MASK},
+    {MM_L0_MASK, HH_L2_MASK, MM_L3_MASK},
+    {MM_H1_MASK, MM_L3_MASK, HH_L3_MASK},
+    {HH_L0_MASK, MM_L1_MASK, MM_H2_MASK}};
+
+const uint8_t led_blink_map[4][3] = {
+    {FSM_SET_MM_H, FSM_SET_HH, FSM_SET_HH},
+    {FSM_SET_MM_L, FSM_SET_HH, FSM_SET_MM_L},
+    {FSM_SET_MM_H, FSM_SET_MM_L, FSM_SET_HH},
+    {FSM_SET_HH, FSM_SET_MM_L, FSM_SET_MM_H}};
+
+#endif
+
 
 // ##### Global variables #####
 
-mode_t active_mode; // The current mode of the device
+mode_t active_mode = MODE_STD; // The current mode of the device
+uint8_t btn_cal = 0;           // Whether or not the device should enter calibration mode when the set button is held
 
 volatile uint16_t current_bcd_time = 0x0000;          // The current time as a 16 bit BCD value, HH:MM
 volatile uint16_t current_raw_time = 0x003b;          // The current time as minutes from 12:00
@@ -249,11 +304,37 @@ void init_std() {
     CLKCTRL.OSC32KCTRLA |= CLKCTRL_RUNSTDBY_bm;    // Enable the 32kHz oscillator in standby mode
 
 
-    // ##### Load RTC calibration data from EEPROM #####
+    // ##### Load configuration data from EEPROM #####
+
+    // Load data from EEPROM if there was a software reset
+    if (RSTCTRL.RSTFR & RSTCTRL_SWRF_bm) {
+        // load the data and write it to the current time
+        current_raw_time = eeprom_read_word((uint16_t *)EEPROM_TIME_ADDR);
+
+        // parse the value into the current time variable and set the state to display
+        current_bcd_time = get_time();
+        current_state = FSM_DISPLAY;
+    }
+
+    // If the software reset flag wasn't set, the device most likely lost power
+    //  and the time wasn't saved. in this case, the FSM should start in the
+    //  FSM_SET_HH state so that the user can enter the correct time
+    else {
+        current_state = FSM_SET_HH;
+    }
+
     // RTC period offset is stored at EEPROM_CAL_ADDR in the eeprom. This value
     //  is a 16 bit signed integer that is added to base value of the RTC
     //  period register to help account for clock drift.
     uint16_t rtc_period = eeprom_read_word((uint16_t *)EEPROM_CAL_ADDR);
+
+    // Once the device is calibrated, we want to prevent accidental re-calibration
+    //  since the process is kind of a pain and requires access to an oscilloscope.
+    //  To do this, EEPROM address EEPROM_BTN_CAL_ADDR is used to store a single
+    //  byte. If this byte is set to a non-zero value, the device will enter
+    //  calibration mode //  when the set button is held. If this byte is any
+    //  other value, the device will just restart when the set button is held.
+    btn_cal = eeprom_read_byte((uint8_t *)EEPROM_BTN_CAL_ADDR);
 
 
     // ##### Configure RTC #####
@@ -329,27 +410,6 @@ void init_std() {
     //  as appropriate in a timed interrupt.:hat is triggered on a low level.
     PORTA.DIRCLR = PA2 | PA3 | PA6 | PA7; // Set LED pins to inputs
     PORTA.DIRCLR = PA1;                   // Set the switch pin to an input
-    PORTA.PIN1CTRL |= PORT_ISC_LEVEL_gc;  // Set the switch pin to trigger an interrupt on a low level
-
-
-    // ##### Load time data from EEPROM #####
-
-    // Load data from EEPROM if there was a software reset
-    if (RSTCTRL.RSTFR & RSTCTRL_SWRF_bm) {
-        // load the data and write it to the current time
-        current_raw_time = eeprom_read_word((uint16_t *)EEPROM_TIME_ADDR);
-
-        // parse the value into the current time variable and set the state to display
-        current_bcd_time = get_time();
-        current_state = FSM_DISPLAY;
-    }
-
-    // If the software reset flag wasn't set, the device most likely lost power
-    //  and the time wasn't saved. in this case, the FSM should start in the
-    //  FSM_SET_HH state so that the user can enter the correct time
-    else {
-        current_state = FSM_SET_HH;
-    }
 }
 
 
@@ -746,7 +806,8 @@ ISR(ADC0_RESRDY_vect) {
         if (btn_state == BTN_VIEW)
             reset_device(MODE_STD);
         if (btn_state == BTN_SET)
-            reset_device(MODE_CAL);
+            // Only enter calibration mode if the device is configured to do so
+            reset_device(btn_cal ? MODE_CAL : MODE_STD);
     }
 }
 

@@ -79,12 +79,11 @@ The components for the watch were picked to make hand soldering possible with a 
     | 4            | 2            | 8   |
     | 4            | 3            | 15  |
 
-
     ![LED test pads](imgs/pcb_step2.png)
 
     _Figure 2_: LED test pads
 
-3. Solder the 4.7kΩ resistors to the PCB
+3.  Solder the 4.7kΩ resistors to the PCB
 
     - The three 4.7kΩ resistors go in the remaining spots with the two parallel silk screen lines (1, 2, and 3 in Figure 3). These resistors aren't polarized, so they can be soldered in any orientation.
 
@@ -92,18 +91,45 @@ The components for the watch were picked to make hand soldering possible with a 
 
     _Figure 3_: 4.7kΩ resistor placement
 
-4. Solder the buttons to the PCB
+4.  Solder the buttons to the PCB
 
     - The buttons go above the silk screen labels reading `SW1` and `SW2`. The buttons aren't polarized, so they can be soldered in either direction
 
-5. Solder the ATtiny402 to the PCB
+5.  Solder the ATtiny402 to the PCB
 
     - The ATtiny402 goes in the remaining spot on the front of the PCB with the small dimple or notch in the chip facing the center of the PCB
 
-6. Solder the battery holder to the PCB
+6.  Solder the battery holder to the PCB
 
     - Flip the PCB over and solder the battery holder to the four pads on the back
 
+### Flashing
+
+Three solder pads, labeled VCC, GND, and UPDI, are supplied on the watch face to allow for simple programming of the ATtiny using a UPDI programmer. Any UPDI programmer should work, but I used an Arduino Uno running [jtag2updi](https://github.com/ElTangas/jtag2updi/). The 4.7k series resistor required for flashing is already included on the PCB, so no external resistor is necessary.
+
+1. Connect the VCC, GND, and UPDI solder pads to the corresponding pins using jumper wires. These jumper wires can be soldered or clipped on, it doesn't really matter. Note that the pads and traces are very small and fragile, so be careful not to put too much stress on them or they could rip off of the PCB.
+
+   - The VCC pad should be connected to the 5V pin on the Arduino
+   - The GND pad should be connected to the GND pin on the Arduino
+   - The UPDI pad should be connected to the D6 on the Arduino
+
+2. Hook the Arduino up to your PC and note what port it is connected to (eg, COM3, /dev/ttyACM0, /dev/ttyUSB0, etc). Set the `PORT` variable on line four of the [Makefile](Makefile) to this value, replacing the default value of `/dev/ttyACM0`
+
+3. Run `make flash` to flash the watch. Alternatively, you can manually run the command `avrdude -c jtag2updi -P <YOUR_PORT> -p attiny402 -U flash:w:bin/main.hex -U eeprom:w:bin/eeprom.hex` to flash the watch.
+
+4. The watch should automatically enter calibration mode after flashing. If you don't want to calibrate the watch right now, just hold down the `VIEW` button for at least three seconds to reset the watch.
+
+### Calibration
+
+After flashing the firmware, the watch will automatically enter one-time calibration mode. In this mode the watch will generate a square wave on the `CAL` solder pad, which can be measured using an oscilloscope. The period of this waveform should be as close to 468.75ms as possible, but it will initially be a good deal off from this value. To calibrate the watch, follow these steps:
+
+1. Connect the `CAL` solder pad to the positive terminal of an oscilloscope probe using a jumper wire. Connect the negative terminal of the probe to the `GND` solder pad.
+2. Measure the period of the generated square wave and compare it to the desired value of 468.75ms. 
+    - If the measured period is to high, press the `VIEW` button to decrease the period.
+    - If the measured period is to low, press the `SET` button to increase the period.
+3. Repeat step 2 thirteen times. After the last repetition, the watch will automatically save the calibration value and restart into standard operation mode.
+
+To prevent accidental re-calibration, the watch will only enter calibration mode immediately after flashing by default. If you want to enable entering calibration mode without flashing the watch, write the value `0x01` to EEPROM address `0x05`. This will allow the watch to enter calibration mode by holding down the `SET` button for at least three seconds. To disable this feature again, write the value `0x00` to EEPROM address `0x05`.
 
 ## Customization
 
@@ -111,10 +137,11 @@ The functionality of the watch can be customized by modifying, compiling, and fl
 
 | Option             | Description                                                                                                      | Default Value | Recommended Range | Units         |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------- | ----------------- | ------------- |
+| `BLINK_FREQUENCY`  | The frequency at which the currently selected digit will blink while in time setting mode                        | 1             | 0.25 - 2          | Hz            |
 | `DEBOUNCE_COUNT`   | The number of consecutive update cycles that a button state must be stable before it is considered to be pressed | 50            | 5 - 500           | update cycles |
 | `RESET_HOLD_TIME`  | The number of seconds that a button must be held before the watch is reset                                       | 3             | 1 - 10            | s             |
 | `SLEEP_TIMEOUT`    | The number of seconds that the watch will remain awake before automatically going back to sleep                  | 10            | 1 - 60            | s             |
-| `UPDATE_FREQUENCY` | The frequency at which the LED matrix is updated and input is read from the buttons.                             | 720           | 288 - 5000        | Hz            |
+| `UPDATE_FREQUENCY` | The frequency at which the LED matrix is updated and input is read from the buttons.                             | 480           | 96 - 5000         | Hz            |
 
 To compile the code, the avr-gcc tool chain will need to be installed with support for the ATtiny402
 

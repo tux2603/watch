@@ -26,3 +26,8 @@
 // Recommended range: 1s - 60s
 // Default value: 10s
 #define SLEEP_TIMEOUT 10
+
+// The revision of the PCB being programmed. Different PCB versions have different
+//  pinouts and for the LED matrix.
+// Valid values: 1, 2
+#define PCB_REVISION 1
