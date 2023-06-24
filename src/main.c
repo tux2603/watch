@@ -162,16 +162,16 @@ const uint8_t led_low_pins[4][3] = {
 #if PCB_REVISION == 1
 
 const uint16_t led_masks[4][3] = {
-    {MM_H0_MASK, MM_L3_MASK, MM_H0_MASK},
+    {MM_H0_MASK, MM_L3_MASK, MM_L2_MASK},
     {MM_L0_MASK, HH_L2_MASK, HH_H0_MASK},
     {HH_L1_MASK, MM_H1_MASK, HH_L3_MASK},
     {MM_L1_MASK, HH_L0_MASK, MM_H2_MASK}};
 
 const uint8_t led_blink_map[4][3] = {
-    {FSM_SET_MM_L, FSM_SET_MM_L, FSM_SET_MM_H},
+    {FSM_SET_MM_H, FSM_SET_MM_L, FSM_SET_MM_L},
     {FSM_SET_MM_L, FSM_SET_HH, FSM_SET_HH},
-    {FSM_SET_MM_H, FSM_SET_HH, FSM_SET_HH},
-    {FSM_SET_MM_L, FSM_SET_MM_H, FSM_SET_HH}};
+    {FSM_SET_HH, FSM_SET_MM_H, FSM_SET_HH},
+    {FSM_SET_MM_L, FSM_SET_HH, FSM_SET_MM_H}};
 
 #elif PCB_REVISION == 2
 
@@ -424,7 +424,7 @@ void init_cal() {
     //
     // If the ULP oscillator is operating at it's nominal frequency of 32.768kHz, the resulting
     //  RTC period register value should be 0x3C00, so this value will be used as the default
-    //  value to begin the SAR process. The ULP oscillator is only garunteed to be accurate to
+    //  value to begin the SAR process. The ULP oscillator is only guaranteed to be accurate to
     //  +/- 10% within the expected operational range of the watch, so realistically the RTC
     //  period register will vary between 0x3600 and 0x4200. This means that the SAR process
     //  should start with an initial value of 0x4000, initial step size of 0x1000, This will
