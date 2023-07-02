@@ -140,13 +140,14 @@ To prevent accidental re-calibration, the watch will only enter calibration mode
 
 The functionality of the watch can be customized by modifying, compiling, and flashing the [source code](src/main.c). For simple changes, the following configuration options can be modified in the [config.h](src/config.h) file:
 
-| Option             | Description                                                                                                      | Default Value | Recommended Range | Units         |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------- | ----------------- | ------------- |
-| `BLINK_FREQUENCY`  | The frequency at which the currently selected digit will blink while in time setting mode                        | 1             | 0.25 - 2          | Hz            |
-| `DEBOUNCE_COUNT`   | The number of consecutive update cycles that a button state must be stable before it is considered to be pressed | 50            | 5 - 500           | update cycles |
-| `RESET_HOLD_TIME`  | The number of seconds that a button must be held before the watch is reset                                       | 3             | 1 - 10            | s             |
-| `SLEEP_TIMEOUT`    | The number of seconds that the watch will remain awake before automatically going back to sleep                  | 10            | 1 - 60            | s             |
-| `UPDATE_FREQUENCY` | The frequency at which the LED matrix is updated and input is read from the buttons.                             | 480           | 96 - 5000         | Hz            |
+| Option                    | Description                                                                                                      | Default Value | Recommended Range | Units         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------- | ----------------- | ------------- |
+| `BLINK_FREQUENCY`         | The frequency at which the currently selected digit will blink while in time setting mode                        | 1             | 0.25 - 2          | Hz            |
+| `DEBOUNCE_COUNT`          | The number of consecutive update cycles that a button state must be stable before it is considered to be pressed | 50            | 5 - 500           | update cycles |
+| `RESET_HOLD_TIME`         | The number of seconds that a button must be held before the watch is reset                                       | 3             | 1 - 10            | s             |
+| `SLEEP_TIMEOUT`           | The number of seconds that the watch will remain awake before automatically going back to sleep                  | 10            | 1 - 60            | s             |
+| `UPDATE_FREQUENCY`        | The frequency at which the LED matrix is updated and input is read from the buttons.                             | 480           | 96 - 5000         | Hz            |
+| `ENABLE_CALIBRATION_MODE` | If defined, the code for entering and running calibration mode will be included in the firmware.                 | Defined       | Undefined         | N/A           |
 
 To compile the code, the avr-gcc tool chain will need to be installed with support for the ATtiny402
 
