@@ -1,6 +1,6 @@
 MCU=attiny402
 MCU_ARCH=avrxmega3
-CFLAGS=-mmcu=$(MCU) -Os -g
+CFLAGS=-mmcu=$(MCU) -Os -g -fshort-enums
 PORT=/dev/ttyACM0
 
 all: archive bin/main.hex src/main.S

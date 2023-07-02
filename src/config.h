@@ -31,3 +31,8 @@
 //  pinouts and for the LED matrix.
 // Valid values: 1, 2
 #define PCB_REVISION 2
+
+// If defined, the watch will include code to enter and run calibration mode.
+//  If you are using a low-memory chip, you can comment out this line to save
+//  around 500-600 bytes of program memory.
+#define ENABLE_CALIBRATION_MODE
