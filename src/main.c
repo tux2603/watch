@@ -179,7 +179,7 @@ const uint8_t led_blink_map[4][3] = {
 
 const uint16_t led_masks[4][3] = {
     {MM_H0_MASK, HH_L1_MASK, HH_H0_MASK},
-    {MM_L0_MASK, HH_L2_MASK, MM_L3_MASK},
+    {MM_L0_MASK, HH_L2_MASK, MM_L2_MASK},
     {MM_H1_MASK, MM_L3_MASK, HH_L3_MASK},
     {HH_L0_MASK, MM_L1_MASK, MM_H2_MASK}};
 
