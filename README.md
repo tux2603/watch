@@ -4,6 +4,12 @@ _revision 2.0_
 
 A 12 hour wrist watch that displays the current time in BCD using LEDs. The watch is powered by a single CR2032 coin cell and uses an ATtiny402 microcontroller to keep track of time and drive the LEDs. The time can be viewed or set at any time by pressing the two buttons on the face of the watch.
 
+PCB fabrication for this project was sponsered by [PCBWay](https://www.pcbway.com/), and I would like to thank them for their support! I was very happy with the quality of the PCBs they sent me, and their staff was very easy to work with.
+
+![Assembled PCB](imgs/assembled_pcb.jpg)
+
+_Fully assembled PCB, supplied by PCBWay and hand assembled by me. US penny for scale_
+
 ## Instructions
 
 ### Viewing the time
@@ -50,7 +56,7 @@ Some trickery was needed to drive twelve LEDs and read two push buttons with the
 
 ### PCB
 
-Unless you're lucky enough to have PCB fabrication facilities in house, you'll need to send the [Gerber files](pcb/gerbers.zip) to a third-party manufacturer for fabrication. I used [DKRed](https://www.digikey.com/en/resources/dkred) for my prototypes, but pretty much any other PCB manufacturer should be able to handle the PCB.
+Unless you're lucky enough to have PCB fabrication facilities in house, you'll need to send the Gerber files to a third-party manufacturer for fabrication. I used DKRed for my initial prototypes, but after releasing v1 [PCBWay](https://www.pcbway.com/) reached out to me and offered to sponsor PCB fabrication for v2. Since I had selected tolerances to work with all of the major PCB fabrication services, I was more than happy to accept their offer. Having worked with both DKRed's ENIG finish and PCBWay's HASL finish, I would definietly have to say I preffered PCBWay's HASL for hand-soldering. The HASL finish made the soldering process a little bit easier, which when you're hand soldering small SMD components is always appreciated.
 
 The components for the watch were picked to make hand soldering possible with a decent soldering iron and a steady hand, but it should also be possible to use a reflow oven or hot plate to solder the components on the face of the PCB. The battery holder will still likely need to be soldered by hand though, but it's nice and big so it shouldn't be too difficult. For hand soldering, I used the following procedure:
 
